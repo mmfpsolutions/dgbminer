@@ -18,7 +18,13 @@ extern "C" bool odo_miner_thread_init( int thr_id )
 extern "C" int scanhash_odo( struct work *work, uint32_t max_nonce,
                            uint64_t *hashes_done, struct thr_info *mythr )
 {
-  static constexpr uint32_t OdoShapechangeInterval = 1*24*60*60;
+  // The Odo key interval is a per-network DigiByte consensus parameter
+  // (nOdoShapechangeInterval in chainparams.cpp): 10 days on mainnet and
+  // regtest, 1 day on testnet. It used to be hard-coded to 1 day, which is
+  // only right on testnet; on mainnet it gave the wrong key on 9 days out of
+  // every 10, so every block found on those days was invalid.
+  const uint32_t OdoShapechangeInterval =
+      opt_testnet ? 1*24*60*60 : 10*24*60*60;
 
   uint32_t throughput = 1;
   int thr_id = mythr->id;
@@ -57,6 +63,8 @@ extern "C" int scanhash_odo( struct work *work, uint32_t max_nonce,
 
 extern "C" bool register_odo_algo( algo_gate_t* gate )
 {
+  applog( LOG_INFO, "Odo key interval: %s",
+          opt_testnet ? "1 day (testnet)" : "10 days (mainnet/regtest)" );
   gate->miner_thread_init = &odo_miner_thread_init;
   gate->scanhash         = &scanhash_odo;
   return true;

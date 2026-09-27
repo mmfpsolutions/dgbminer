@@ -632,7 +632,12 @@ extern uint32_t solved_block_count;
 extern pthread_mutex_t applog_lock;
 extern pthread_mutex_t stats_lock;
 extern bool opt_sapling;
+extern bool opt_testnet;
 extern const int pk_buffer_size_max;
+/* Capacity of the coinbase payout script buffer: the largest script
+   address_to_script can produce, a segwit v1+ output with a 40-byte witness
+   program (2 + 40). Base58 scripts are at most 25 bytes. */
+#define PK_SCRIPT_MAX 42
 extern int pk_buffer_size;
 extern char *opt_data_file;
 extern bool opt_verify;
@@ -667,6 +672,9 @@ Options:\n\
       --hash-meter      display thread hash rates\n\
       --coinbase-addr=ADDR  payout address for solo mining\n\
       --coinbase-sig=TEXT  data to insert in the coinbase when possible\n\
+                          (solo mining; default: GoSlimStratum, \"\" for none)\n\
+      --testnet         DigiByte testnet: use testnet's 1-day Odo key interval\n\
+                          (default: 10 days, for mainnet and regtest)\n\
       --no-longpoll     disable long polling support\n\
       --no-getwork      disable getwork support\n\
       --no-gbt          disable getblocktemplate support\n\
@@ -753,6 +761,7 @@ static struct option const options[] = {
 #ifdef HAVE_SYSLOG_H
         { "syslog", 0, NULL, 'S' },
 #endif
+        { "testnet", 0, NULL, 1070 },
         { "time-limit", 1, NULL, 1008 },
         { "threads", 1, NULL, 't' },
         { "timeout", 1, NULL, 'T' },
