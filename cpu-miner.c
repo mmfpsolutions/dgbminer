@@ -119,9 +119,13 @@ static struct timeval stratum_reset_time;
 // it must be set correctly to work.
 const int pk_buffer_size_max = 26;
 int pk_buffer_size = 25;
-static unsigned char pk_script[ 26 ] = { 0 };
+static unsigned char pk_script[ PK_SCRIPT_MAX ] = { 0 };
 static size_t pk_script_size = 0;
-static char coinbase_sig[101] = { 0 };
+// Text added to the coinbase scriptSig when solo mining (--no-stratum), where
+// dgbminer builds the coinbase itself. In stratum mode the pool builds the
+// coinbase and this is unused. Override with --coinbase-sig=TEXT, or turn it
+// off with --coinbase-sig="".
+static char coinbase_sig[101] = "GoSlimStratum";
 char *opt_cert;
 char *opt_proxy;
 long opt_proxy_type;
@@ -715,11 +719,13 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
                     oracle_script_size );
       }
 
-      /* 256 bytes covers the base coinbase, the payout and witness outputs
-         and the up-to-102-byte scriptSig extension added below. The oracle
-         output (8-byte value + compact-size length + script) is extra, so it
-         is added on top; a fixed 256 would overflow once it is included. */
-      cbtx = (uchar*) malloc( 256 + 8 + 9 + oracle_script_size );
+      /* 256 bytes covers the base coinbase, the payout (up to PK_SCRIPT_MAX)
+         and witness outputs, lock time and the up-to-102-byte scriptSig
+         extension added below, with a 42-byte payout script that is 256
+         exactly, so 32 bytes of margin are added. The oracle output (8-byte
+         value + compact-size length + script) is extra, so it is added on
+         top; a fixed 256 would overflow once it is included. */
+      cbtx = (uchar*) malloc( 256 + 32 + 8 + 9 + oracle_script_size );
       le32enc( (uint32_t *)cbtx, 1 ); /* version */
       cbtx[4] = 1; /* in-counter */
       memset( cbtx+5, 0x00, 32 ); /* prev txout hash */

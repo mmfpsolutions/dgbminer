@@ -185,3 +185,32 @@ rather than overrun.
   output goes before the witness commitment.
 - **Buffer:** `malloc(256 + 8 + 9 + oracle_script_size)`, which keeps the original 256-byte allowance
   for everything else, including the scriptSig extension.
+
+## 9. Addition: Bech32m payout addresses and default coinbase text
+
+**Bech32m (Taproot, `dgb1p…`).** `--coinbase-addr` rejected every witness v1+ address, for two reasons:
+1. `bech32_decode` accepted only the Bech32 checksum constant (`chk == 1`). Bech32m (BIP350) needs
+   `0x2bc830a3`. It now returns which encoding matched, and `segwit_addr_decode` enforces BIP350: v0
+   must be Bech32, and v1 and later must be Bech32m.
+2. **The payout-script buffer was too small.** `pk_script` was 26 bytes and the SegWit path was given
+   `pk_buffer_size` (25) as its capacity. A 34-byte Taproot or **P2WSH** script didn't fit, so P2WSH
+   was also broken. `pk_buffer_size` is the Base58 decode length and must stay 25, so the SegWit path
+   now uses a separate `PK_SCRIPT_MAX` (42: a 40-byte witness program + 2). The coinbase buffer gained
+   32 bytes of margin to match.
+
+**Verified** with dgbminer's actual `util.c` address code (extracted unchanged) against vectors from a
+BIP350 reference encoder, which itself reproduces the official BIP350 Taproot address exactly:
+
+| Vector | New code | Original code |
+|---|---|---|
+| `dgb1p…` Taproot (Bech32m) | ✅ `5120…` | ❌ rejected |
+| `dgbt1p…` Taproot, testnet | ✅ | ❌ rejected |
+| `dgb1q…` P2WPKH (Bech32) | ✅ `0014…` | ✅ |
+| `dgb1q…` P2WSH, 32-byte (Bech32) | ✅ `0020…` | ❌ rejected |
+| BIP350 official `bc1p0xlx…` | ✅ | ❌ rejected |
+| v1 with a Bech32 checksum (invalid) | ✅ rejected | ✅ rejected |
+| v0 with a Bech32m checksum (invalid) | ✅ rejected | ✅ rejected |
+
+**Coinbase text.** `coinbase_sig` now defaults to `GoSlimStratum`. It only applies when dgbminer
+builds the coinbase itself (solo, `--no-stratum`). Override it with `--coinbase-sig=TEXT`, or turn it
+off with `--coinbase-sig=""`. The existing 100-byte scriptSig limit still applies.

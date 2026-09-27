@@ -973,7 +973,17 @@ static const int8_t bech32_charset_rev[128] = {
      1,  0,  3, 16, 11, 28, 12, 14,  6,  4,  2, -1, -1, -1, -1, -1
 };
 
-static bool bech32_decode(char *hrp, uint8_t *data, size_t *data_len, const char *input) {
+/* Checksum encodings (BIP173 Bech32, BIP350 Bech32m). Segwit v0 addresses
+   use Bech32; v1+ addresses (e.g. Taproot, dgb1p...) use Bech32m, which
+   differs only in the constant the checksum must equal. */
+#define BECH32_ENCODING_NONE    0
+#define BECH32_ENCODING_BECH32  1
+#define BECH32_ENCODING_BECH32M 2
+#define BECH32M_CONST 0x2bc830a3
+
+/* Returns BECH32_ENCODING_BECH32 or BECH32_ENCODING_BECH32M on success,
+   BECH32_ENCODING_NONE (0) on any failure. */
+static int bech32_decode(char *hrp, uint8_t *data, size_t *data_len, const char *input) {
     uint32_t chk = 1;
     size_t i;
     size_t input_len = strlen(input);
@@ -1025,9 +1035,11 @@ static bool bech32_decode(char *hrp, uint8_t *data, size_t *data_len, const char
         ++i;
     }
     if (have_lower && have_upper) {
-        return false;
+        return BECH32_ENCODING_NONE;
     }
-    return chk == 1;
+    if (chk == 1) return BECH32_ENCODING_BECH32;
+    if (chk == BECH32M_CONST) return BECH32_ENCODING_BECH32M;
+    return BECH32_ENCODING_NONE;
 }
 
 static bool convert_bits(uint8_t *out, size_t *outlen, int outbits, const uint8_t *in, size_t inlen, int inbits, int pad) {
@@ -1056,9 +1068,13 @@ static bool segwit_addr_decode(int *witver, uint8_t *witdata, size_t *witdata_le
     uint8_t data[84];
     char hrp_actual[84];
     size_t data_len;
-    if (!bech32_decode(hrp_actual, data, &data_len, addr)) return false;
+    int enc = bech32_decode(hrp_actual, data, &data_len, addr);
+    if (enc == BECH32_ENCODING_NONE) return false;
     if (data_len == 0 || data_len > 65) return false;
     if (data[0] > 16) return false;
+    /* BIP350: witness v0 must use Bech32, v1 and later must use Bech32m. */
+    if (data[0] == 0 && enc != BECH32_ENCODING_BECH32) return false;
+    if (data[0] != 0 && enc != BECH32_ENCODING_BECH32M) return false;
     *witdata_len = 0;
     if (!convert_bits(witdata, witdata_len, 8, data + 1, data_len - 1, 5, 0)) return false;
     if (*witdata_len < 2 || *witdata_len > 40) return false;
@@ -1081,7 +1097,8 @@ static size_t bech32_to_script(uint8_t *out, size_t outsz, const char *addr) {
     memcpy(out + 2, witprog, witprog_len);
 
    if ( opt_debug )
-      applog( LOG_INFO, "Coinbase address uses Bech32 coding");
+      applog( LOG_INFO, "Coinbase address uses %s coding (witness v%d)",
+              witver ? "Bech32m" : "Bech32", witver );
 
     return witprog_len + 2;
 }
@@ -1092,8 +1109,12 @@ size_t address_to_script( unsigned char *out, size_t outsz, const char *addr )
 	int addrver;
 	size_t rv;
 
+	/* outsz is the Base58 decode length (pk_buffer_size), not the capacity
+	   of out. SegWit scripts can be longer than any Base58 one (up to 42
+	   bytes for a 40-byte witness program; 34 for P2WSH and Taproot), so
+	   the SegWit path uses PK_SCRIPT_MAX, which out must be sized for. */
 	if ( !b58dec( addrbin, outsz, addr ) )
-		return bech32_to_script( out, outsz, addr );
+		return bech32_to_script( out, PK_SCRIPT_MAX, addr );
 
    addrver = b58check( addrbin, outsz, addr );
    if ( addrver < 0 )

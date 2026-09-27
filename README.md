@@ -31,6 +31,12 @@ all five DigiByte algorithms including Odo. It adds three DigiByte fixes:
   with `-a`. One node can serve all five algorithms, so `algo=` in `digibyte.conf` is no longer needed.
 - **DigiDollar-aware solo mining.** dgbminer requests the `digidollar-oracle` rule and adds the oracle
   commitment to the coinbase when the node provides one.
+- **Taproot and P2WSH payout addresses.** `--coinbase-addr` now accepts Bech32m addresses
+  (`dgb1p…`, Taproot) and 32-byte SegWit v0 addresses (P2WSH). Before, the original accepted only
+  Base58 and 20-byte `dgb1q…` addresses.
+- **Coinbase text.** Solo-mined blocks carry `GoSlimStratum` in the coinbase by default. Change it
+  with `--coinbase-sig=TEXT`, or turn it off with `--coinbase-sig=""`. Pool mining isn't affected,
+  because there the pool builds the coinbase.
 
 # Linux Testnet Solo - odo (note --testnet)
 ./cpuminer -a odo --testnet -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgbt1q... -D
