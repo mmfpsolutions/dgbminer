@@ -19,7 +19,9 @@ chmod +x *.sh
 
 ## MMFP Solutions fork: DigiByte awareness
 
-This fork (`mmfpsolutions/dgbminer`) adds three DigiByte fixes:
+This fork ([mmfpsolutions/dgbminer](https://github.com/mmfpsolutions/dgbminer)) is maintained by
+[MMFP Solutions](https://www.mmfpsolutions.io), makers of the GoSlimStratum solo mining pool, which mines
+all five DigiByte algorithms including Odo. It adds three DigiByte fixes:
 
 - **Correct Odo key on every network.** The Odocrypt key changes every **10 days on mainnet and
   regtest** and every **1 day on testnet**. The original hard-coded 1 day, so Odo mining was broken on

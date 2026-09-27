@@ -2928,6 +2928,9 @@ static void show_credits()
    printf("A Digibyte optimized cpu miner.\n");
    printf("sha256d, scrypt, skein, qubit and odocrypt..\n");
    printf("Github: https://github.com/Jongjan88/dgbminer\n");
+   printf("MMFP Solutions fork: https://github.com/mmfpsolutions/dgbminer\n");
+   printf("  with DigiByte Odo, algo and DigiDollar fixes\n");
+   printf("  Solo pool: GoSlimStratum, https://www.mmfpsolutions.io\n");
    printf("--------------------------------------------\n\n");
 }
 
