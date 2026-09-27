@@ -17,6 +17,22 @@ chmod +x *.sh
 
 ***Run node && cpuminer on the same PC!***
 
+## MMFP Solutions fork: DigiByte awareness
+
+This fork (`mmfpsolutions/dgbminer`) adds three DigiByte fixes:
+
+- **Correct Odo key on every network.** The Odocrypt key changes every **10 days on mainnet and
+  regtest** and every **1 day on testnet**. The original hard-coded 1 day, so Odo mining was broken on
+  mainnet 9 days out of 10. The default is now 10 days. **On testnet, add `--testnet`**, for both solo
+  and pool (stratum) mining. The startup log shows which interval is in use.
+- **Algorithm-aware solo mining.** dgbminer asks the node for a template for the algorithm you chose
+  with `-a`. One node can serve all five algorithms, so `algo=` in `digibyte.conf` is no longer needed.
+- **DigiDollar-aware solo mining.** dgbminer requests the `digidollar-oracle` rule and adds the oracle
+  commitment to the coinbase when the node provides one.
+
+# Linux Testnet Solo - odo (note --testnet)
+./cpuminer -a odo --testnet -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgbt1q... -D
+
 # Linux Solo - sha256d
 ./cpuminer -a sha256d -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgb1q66lmtmlkswlphp5j7fgvg4nar4y8uf24hvlu89 -D
 
@@ -41,6 +57,7 @@ chmod +x *.sh
 libgmp3-dev zlib1g-dev
 
 # Mainnet config ( digibyte.conf )
+`algo=` below is optional with this fork. dgbminer asks for the algorithm you pass with `-a`.
 ```bash
 maxconnections=300
 listen=1

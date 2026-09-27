@@ -94,6 +94,10 @@ int opt_param_n = 0;
 int opt_param_r = 0;
 int opt_n_threads = 0;
 bool opt_sapling = false;
+// DigiByte testnet. Selects testnet consensus parameters that differ per
+// network: today only the Odo key interval (1 day on testnet, 10 days on
+// mainnet and regtest).
+bool opt_testnet = false;
 static uint64_t opt_affinity = 0xFFFFFFFFFFFFFFFFULL;  // default, use all cores
 int opt_priority = 0;  // deprecated
 int num_cpus = 1;
@@ -664,7 +668,58 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
       }
       cbvalue = (int64_t) ( json_is_integer( tmp ) ? json_integer_value( tmp )
                                                    : json_number_value( tmp ) );
-      cbtx = (uchar*) malloc(256);
+
+      /* DigiDollar oracle commitment. When the "digidollar-oracle" rule is
+         requested and active, the node returns default_oracle_commitment: a
+         full scriptPubKey (starting with OP_RETURN, 0x6a) that goes into the
+         coinbase verbatim as a zero-value output, exactly like the witness
+         commitment. Mirrors GoSlimStratum's appendOracleCommitment
+         (pkg/coin/digibyte/coinbase.go), which is proven on mainnet.
+         A block without it is still valid, so a malformed commitment is
+         skipped with a warning rather than failing the template. */
+      unsigned char oracle_script[520];
+      int oracle_script_size = 0;
+      tmp = json_object_get( val, "default_oracle_commitment" );
+      /* Absent or empty: the rule isn't active, so there's no commitment. */
+      if ( tmp && json_is_string( tmp ) && *json_string_value( tmp ) )
+      {
+         const char *oc_hex = json_string_value( tmp );
+         const int oc_len = (int) ( strlen( oc_hex ) / 2 );
+         unsigned char oc[ sizeof(oracle_script) - 2 ];
+         if ( strlen( oc_hex ) % 2 || oc_len > (int) sizeof(oc)
+              || !hex2bin( oc, oc_hex, oc_len ) )
+            applog( LOG_WARNING,
+                    "Invalid default_oracle_commitment, mining without it" );
+         else if ( oc[0] != 0x6a && oc_len > 255 )
+            /* Too long to wrap with OP_PUSHDATA1; never seen from a node. */
+            applog( LOG_WARNING,
+                    "Oversized default_oracle_commitment, mining without it" );
+         else if ( oc[0] == 0x6a )
+         {
+            /* Already a full OP_RETURN script: use it verbatim. */
+            memcpy( oracle_script, oc, oc_len );
+            oracle_script_size = oc_len;
+         }
+         else
+         {
+            /* Bare commitment data: wrap it in OP_RETURN <push>. */
+            oracle_script[ oracle_script_size++ ] = 0x6a;
+            if ( oc_len > 75 )
+               oracle_script[ oracle_script_size++ ] = 0x4c; /* OP_PUSHDATA1 */
+            oracle_script[ oracle_script_size++ ] = (unsigned char) oc_len;
+            memcpy( oracle_script + oracle_script_size, oc, oc_len );
+            oracle_script_size += oc_len;
+         }
+         if ( opt_debug && oracle_script_size )
+            applog( LOG_INFO, "GBT: DigiDollar oracle commitment included (%d bytes)",
+                    oracle_script_size );
+      }
+
+      /* 256 bytes covers the base coinbase, the payout and witness outputs
+         and the up-to-102-byte scriptSig extension added below. The oracle
+         output (8-byte value + compact-size length + script) is extra, so it
+         is added on top; a fixed 256 would overflow once it is included. */
+      cbtx = (uchar*) malloc( 256 + 8 + 9 + oracle_script_size );
       le32enc( (uint32_t *)cbtx, 1 ); /* version */
       cbtx[4] = 1; /* in-counter */
       memset( cbtx+5, 0x00, 32 ); /* prev txout hash */
@@ -682,13 +737,26 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
       cbtx[41] = cbtx_size - 42; /* scriptsig length */
       le32enc( (uint32_t *)( cbtx+cbtx_size ), 0xffffffff ); /* sequence */
       cbtx_size += 4;
-      cbtx[cbtx_size++] = segwit ? 2 : 1; /* out-counter */
+      /* out-counter: payout, then oracle commitment, then witness commitment */
+      cbtx[cbtx_size++] = 1 + ( oracle_script_size ? 1 : 0 ) + ( segwit ? 1 : 0 );
       le32enc( (uint32_t *)( cbtx+cbtx_size) , (uint32_t)cbvalue ); /* value */
       le32enc( (uint32_t *)( cbtx+cbtx_size+4 ), cbvalue >> 32 );
       cbtx_size += 8;
       cbtx[ cbtx_size++ ] = (uint8_t) pk_script_size; /* txout-script length */
       memcpy( cbtx+cbtx_size, pk_script, pk_script_size );
       cbtx_size += (int) pk_script_size;
+
+      /* Oracle commitment before the witness commitment, so the witness
+         commitment stays the last output (BIP141 convention, as Core and
+         GoSlimStratum do). */
+      if ( oracle_script_size )
+      {
+         memset( cbtx+cbtx_size, 0, 8 ); /* value */
+         cbtx_size += 8;
+         cbtx_size += varint_encode( cbtx+cbtx_size, oracle_script_size );
+         memcpy( cbtx+cbtx_size, oracle_script, oracle_script_size );
+         cbtx_size += oracle_script_size;
+      }
 
        if ( segwit )
        {
@@ -1515,6 +1583,56 @@ static const char *gbt_req =
 const char *gbt_lp_req =
    "{\"method\": \"getblocktemplate\", \"params\": [{\"capabilities\": "
    GBT_CAPABILITIES ", \"rules\": " GBT_RULES ", \"longpollid\": \"%s\"}], \"id\":0}\r\n";
+
+// DigiByte template requests. DigiByte's getblocktemplate takes the mining
+// algorithm as a second positional parameter; without it the node picks the
+// algorithm from algo= in digibyte.conf. Also requests the DigiDollar
+// "digidollar-oracle" rule, so the node returns default_oracle_commitment when
+// the rule is active (see gbt_work_decode). Requesting it is safe on every node
+// version: a node that doesn't know it, or where it isn't active, returns a
+// normal template. Same request GoSlimStratum makes (pkg/coin/digibyte/rpc.go).
+#define GBT_RULES_DGB "[\"segwit\", \"digidollar-oracle\"]"
+
+static bool is_digibyte_algo( enum algos a )
+{
+   switch ( a )
+   {
+      case ALGO_SHA256D:
+      case ALGO_SCRYPT:
+      case ALGO_SKEIN:
+      case ALGO_QUBIT:
+      case ALGO_ODO:
+         return true;
+      default:
+         return false;
+   }
+}
+
+// Replaces gbt_req and gbt_lp_req with DigiByte requests for the selected
+// algorithm. Must run after option parsing, once opt_algo is known. Algorithms
+// other than DigiByte's five keep the original requests.
+static void build_gbt_requests( void )
+{
+   static char req[512];
+   static char lp_req[512];
+   const char *algo = algo_names[ opt_algo ];
+
+   if ( !is_digibyte_algo( opt_algo ) )
+      return;
+
+   snprintf( req, sizeof(req),
+      "{\"method\": \"getblocktemplate\", \"params\": [{\"capabilities\": "
+      GBT_CAPABILITIES ", \"rules\": " GBT_RULES_DGB "}, \"%s\"], \"id\":0}\r\n",
+      algo );
+   // lp_req is itself a format string: "%%s" leaves a "%s" for the long-poll id.
+   snprintf( lp_req, sizeof(lp_req),
+      "{\"method\": \"getblocktemplate\", \"params\": [{\"capabilities\": "
+      GBT_CAPABILITIES ", \"rules\": " GBT_RULES_DGB
+      ", \"longpollid\": \"%%s\"}, \"%s\"], \"id\":0}\r\n",
+      algo );
+   gbt_req = req;
+   gbt_lp_req = lp_req;
+}
 
 static bool get_upstream_work( CURL *curl, struct work *work )
 {
@@ -3414,6 +3532,9 @@ void parse_arg(int key, char *arg )
 		d = atof(arg);
 		opt_max_diff = d;
 		break;
+	case 1070: // testnet
+		opt_testnet = true;
+		break;
 	case 1062: // max-rate
 		d = atof(arg);
 		p = strstr(arg, "K");
@@ -3627,6 +3748,8 @@ int main(int argc, char *argv[])
    // Would need to split register function into 2 parts. First part sets algo
    // optimizations but no logging, second part does any logging.   
    if ( !register_algo_gate( opt_algo, &algo_gate ) )  exit(1);
+
+   build_gbt_requests();
 
    if ( !check_cpu_capability() ) exit(1);
    
