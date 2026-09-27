@@ -112,8 +112,8 @@ shipped in GSS 5.1.4 and live on mainnet):
    returns a normal template with no commitment.
 2. When the template has `default_oracle_commitment`, add a **zero-value output** whose scriptPubKey is
    that hex **verbatim**. It already starts with `0x6a`, OP_RETURN.
-3. **Order:** payout output, then the oracle commitment, then the witness commitment last, following the
-   BIP141 convention that GSS also follows.
+3. **Order:** payout output, then the witness commitment, then the oracle commitment **last**. That's
+   the order DigiByte Core's own coinbase uses (see §11). This was originally planned the other way round.
 4. The **output count** becomes `1 + oracle + segwit`. Today it's `segwit ? 2 : 1`.
 5. Encode the script length as a **compact size**. Today it's a single byte, which is fine for the witness
    commitment's fixed 38 bytes but not guaranteed for the oracle script.
@@ -182,7 +182,7 @@ rather than overrun.
   bare data is wrapped in `OP_RETURN` with a push (up to 255 bytes, otherwise skipped). A malformed or
   oversized commitment is skipped with a warning, because the block is still valid without it. The
   output count is `1 + oracle + segwit`, the length is compact-size (`varint_encode`), and the oracle
-  output goes before the witness commitment.
+  output goes after the witness commitment (see §11).
 - **Buffer:** `malloc(256 + 8 + 9 + oracle_script_size)`, which keeps the original 256-byte allowance
   for everything else, including the scriptSig extension.
 
@@ -233,3 +233,16 @@ GSS 5.3.0 release.
 
 **Possible follow-up:** DigiByte 9.26.6rc1 templates include an `odokey` field for Odo. Solo mode
 could use it directly, which would remove the need for `--testnet` when mining solo.
+
+## 11. Oracle output order corrected to match Core
+
+The first version put the oracle commitment **before** the witness commitment, mirroring GSS, on the
+belief that Core keeps the witness output last. **That was wrong.** In DigiByte Core,
+`GenerateCoinbaseCommitment` adds the witness output first, and then `AddOracleBundleToBlock`
+(`src/oracle/bundle_manager.cpp`) appends the oracle output with `vout.push_back`. So Core's own
+coinbase is: payout, witness commitment, oracle commitment.
+
+**Both orders are valid.** `OracleBundleManager::ExtractOracleBundle` scans every coinbase output for
+`OP_RETURN OP_ORACLE` (at most one is allowed), and BIP141 finds the witness commitment by pattern. GSS
+uses the other order and is proven on mainnet. The fork now matches Core anyway, the same as the
+upstream PR (DigiByte-Core/dgbminer#1), so there is one behaviour to reason about.

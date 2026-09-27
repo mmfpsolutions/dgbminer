@@ -743,7 +743,7 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
       cbtx[41] = cbtx_size - 42; /* scriptsig length */
       le32enc( (uint32_t *)( cbtx+cbtx_size ), 0xffffffff ); /* sequence */
       cbtx_size += 4;
-      /* out-counter: payout, then oracle commitment, then witness commitment */
+      /* out-counter: payout, then witness commitment, then oracle commitment */
       cbtx[cbtx_size++] = 1 + ( oracle_script_size ? 1 : 0 ) + ( segwit ? 1 : 0 );
       le32enc( (uint32_t *)( cbtx+cbtx_size) , (uint32_t)cbvalue ); /* value */
       le32enc( (uint32_t *)( cbtx+cbtx_size+4 ), cbvalue >> 32 );
@@ -752,17 +752,6 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
       memcpy( cbtx+cbtx_size, pk_script, pk_script_size );
       cbtx_size += (int) pk_script_size;
 
-      /* Oracle commitment before the witness commitment, so the witness
-         commitment stays the last output (BIP141 convention, as Core and
-         GoSlimStratum do). */
-      if ( oracle_script_size )
-      {
-         memset( cbtx+cbtx_size, 0, 8 ); /* value */
-         cbtx_size += 8;
-         cbtx_size += varint_encode( cbtx+cbtx_size, oracle_script_size );
-         memcpy( cbtx+cbtx_size, oracle_script, oracle_script_size );
-         cbtx_size += oracle_script_size;
-      }
 
        if ( segwit )
        {
@@ -802,6 +791,20 @@ static bool gbt_work_decode( const json_t *val, struct work *work )
          sha256d( cbtx+cbtx_size, wtree[0], 64 );
          cbtx_size += 32;
          free( wtree );
+      }
+
+      /* Oracle commitment last, after the witness commitment: the same order
+         as DigiByte Core's own template coinbase, where AddOracleBundleToBlock
+         appends it after GenerateCoinbaseCommitment. Validation finds both by
+         pattern (ExtractOracleBundle scans every output), so the order is not
+         consensus-critical. */
+      if ( oracle_script_size )
+      {
+         memset( cbtx+cbtx_size, 0, 8 ); /* value */
+         cbtx_size += 8;
+         cbtx_size += varint_encode( cbtx+cbtx_size, oracle_script_size );
+         memcpy( cbtx+cbtx_size, oracle_script, oracle_script_size );
+         cbtx_size += oracle_script_size;
       }
 
       le32enc( (uint32_t *)( cbtx+cbtx_size ), 0 ); /* lock time */
