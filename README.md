@@ -17,6 +17,19 @@ chmod +x *.sh
 
 ***Run node && cpuminer on the same PC!***
 
+# Odocrypt on testnet: use --testnet
+The Odocrypt key changes every 10 days on mainnet and regtest, and every day on testnet. The miner
+uses the 10-day interval by default; add `--testnet` when mining odo on testnet (solo or pool). The
+interval in use is shown at startup.
+
+# Solo mining notes
+- The miner asks the node for a block template for the algorithm given with `-a`, so a single node
+  can serve every algorithm and `algo=` in `digibyte.conf` is optional.
+- DigiDollar: the miner requests the `digidollar-oracle` template rule and includes the node's
+  oracle commitment in the coinbase whenever one is provided.
+- `--coinbase-addr` accepts Base58, Bech32 (`dgb1q...`, including P2WSH) and Bech32m (`dgb1p...`,
+  Taproot) addresses.
+
 # Linux Solo - sha256d
 ./cpuminer -a sha256d -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgb1q66lmtmlkswlphp5j7fgvg4nar4y8uf24hvlu89 -D
 
@@ -29,7 +42,7 @@ chmod +x *.sh
 # Linux Solo - qubit
 ./cpuminer -a qubit -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgb1q66lmtmlkswlphp5j7fgvg4nar4y8uf24hvlu89 -D
 
-# Linux Solo - odo
+# Linux Solo - odo (add --testnet on testnet)
 ./cpuminer -a odo -o http://127.0.0.1:14022/ --userpass=user:pass --no-getwork --no-stratum --coinbase-addr=dgb1q66lmtmlkswlphp5j7fgvg4nar4y8uf24hvlu89 -D
 
 
@@ -41,6 +54,7 @@ chmod +x *.sh
 libgmp3-dev zlib1g-dev
 
 # Mainnet config ( digibyte.conf )
+`algo=` is optional: the miner requests the algorithm given with `-a`.
 ```bash
 maxconnections=300
 listen=1
