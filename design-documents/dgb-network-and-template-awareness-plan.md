@@ -1,6 +1,6 @@
 # dgbminer: DigiByte network, algorithm and DigiDollar awareness
 
-**Status:** Implemented on `dgb-network-and-template-awareness`. Not yet compiled: Scott builds it natively on the Ubuntu server with `build.sh`. Awaiting that build and the live tests in §6. See §8.
+**Status:** Implemented on `dgb-network-and-template-awareness`. Built natively on Ubuntu (`build.sh`, GCC 15.2) and live-tested on testnet26 on 2026-09-27. Everything is verified except the oracle output, which is waiting on a network that offers a bundle. See §10. See §8.
 **Repo:** `mmfpsolutions/dgbminer` (public fork of `DigiByte-Core/dgbminer`)
 **Branch:** `dgb-network-and-template-awareness`
 **Upstream PR:** not planned. These changes stay in the MMFP fork.
@@ -214,3 +214,22 @@ BIP350 reference encoder, which itself reproduces the official BIP350 Taproot ad
 **Coinbase text.** `coinbase_sig` now defaults to `GoSlimStratum`. It only applies when dgbminer
 builds the coinbase itself (solo, `--no-stratum`). Override it with `--coinbase-sig=TEXT`, or turn it
 off with `--coinbase-sig=""`. The existing 100-byte scriptSig limit still applies.
+
+## 10. Live test results (2026-09-27, testnet26)
+
+| Feature | Result |
+|---|---|
+| `--testnet` Odo key | ✅ Logs `Odo key interval: 1 day (testnet)`. Mined through GSS (stratum) normally. |
+| Algorithm in template request | ✅ The `-P` dump shows `"rules": ["segwit", "digidollar-oracle"]}, "odo"]`, and the node returned an Odo template. |
+| `digidollar-oracle` rule requested | ✅ In the same request. |
+| Coinbase text | ✅ The submitted coinbase scriptSig is `03fec006` (height 442622) + `0d 476f536c696d5374726174756d` ("GoSlimStratum"). |
+| Solo block | ✅ `submitblock` returned `null`: accepted (`BLOCK SOLVED 1`). |
+| Bech32m (Taproot) payout | ✅ Confirmed working by Scott. |
+| Oracle commitment output | ⏳ **Not exercised.** The node only returns `default_oracle_commitment` when an oracle bundle is ready (`AddOracleBundleToBlock` in `src/node/miner.cpp`). testnet26 had no bundles; GSS and other miners weren't getting any either. The template had no commitment, so dgbminer correctly built a 2-output coinbase (payout + witness). |
+
+**Still to do:** run against a **mainnet** node, where DigiDollar is active, with `-D` and without `--testnet`.
+Each template should log `GBT: DigiDollar oracle commitment included (N bytes)`. Planned after the
+GSS 5.3.0 release.
+
+**Possible follow-up:** DigiByte 9.26.6rc1 templates include an `odokey` field for Odo. Solo mode
+could use it directly, which would remove the need for `--testnet` when mining solo.
